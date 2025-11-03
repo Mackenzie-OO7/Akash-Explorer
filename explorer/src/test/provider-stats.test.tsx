@@ -1,45 +1,89 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, beforeAll } from 'vitest'
+import { render, screen,} from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { vi as mockVi } from 'vitest'
 
-// were using mock components for now till we get the actual ones
-const MetricCard = mockVi.fn(({ title, value, isLoading, error }: any) => (
+// API config
+const API_URL = 'https://console-api.akash.network/v1/dashboard-data'
+
+// Store API data
+let liveApiData: any = null
+
+// Fetch the data
+const fetchDashboardData = async () => {
+  const response = await fetch(API_URL)
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status}`)
+  }
+  return await response.json()
+}
+
+// Helper fn to convert micro-USD to USD
+const convertMicroUsdToUsd = (microUsd: number): number => {
+  return microUsd / 1000000
+}
+
+// Helper fn to format USD
+const formatUsd = (usd: number): string => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(usd)
+}
+
+// Helper fn to format numbers
+const formatNumber = (num: number): string => {
+  return new Intl.NumberFormat('en-US').format(num)
+}
+
+const MetricCard = ({ title, value, isLoading, error }: any) => (
   <div data-testid={`metric-card-${title.toLowerCase().replace(/\s+/g, '-')}`}>
     <h3>{title}</h3>
     {isLoading && <div data-testid="loading-spinner">Loading...</div>}
     {error && <div data-testid="error-message">{error}</div>}
     {!isLoading && !error && <div data-testid="metric-value">{value}</div>}
   </div>
-))
+)
 
-const UsdSpentMetric = mockVi.fn(() => (
-  <MetricCard title="USD Spent (24h)" value="$12,345.67" isLoading={false} error={null} />
-))
+const UsdSpentMetric = ({ data }: any) => {
+  const usd = convertMicroUsdToUsd(data.now.dailyUUsdSpent)
+  const formatted = formatUsd(usd)
+  return <MetricCard title="USD Spent (24h)" value={formatted} isLoading={false} error={null} />
+}
 
-const ActiveLeasesMetric = mockVi.fn(() => (
-  <MetricCard title="Active Leases" value="1,234" isLoading={false} error={null} />
-))
+const ActiveLeasesMetric = ({ data }: any) => {
+  const formatted = formatNumber(data.now.activeLeaseCount)
+  return <MetricCard title="Active Leases" value={formatted} isLoading={false} error={null} />
+}
 
-const ActiveProvidersMetric = mockVi.fn(() => (
-  <MetricCard title="Active Providers" value="56" isLoading={false} error={null} />
-))
+const ActiveProvidersMetric = ({ data }: any) => {
+  const formatted = formatNumber(data.networkCapacity.activeProviderCount)
+  return <MetricCard title="Active Providers" value={formatted} isLoading={false} error={null} />
+}
 
 describe('Provider Statistics Tests', () => {
+  // Fetch data before all tests
+  beforeAll(async () => {
+    liveApiData = await fetchDashboardData()
+  })
 
-  // USD Spent (24h) stats Tests
+  // USD Spent (24h) stats tests
   describe('USD Spent (24h) Metric', () => {
     it('should render with correct title', () => {
-      render(<UsdSpentMetric />)
+      render(<UsdSpentMetric data={liveApiData} />)
 
       expect(screen.getByText('USD Spent (24h)')).toBeInTheDocument()
     })
 
     it('should display USD value with proper formatting', () => {
-      render(<MetricCard title="USD Spent (24h)" value="$12,345.67" isLoading={false} error={null} />)
+      const usd = convertMicroUsdToUsd(liveApiData.now.dailyUUsdSpent)
+      const formatted = formatUsd(usd)
+
+      render(<MetricCard title="USD Spent (24h)" value={formatted} isLoading={false} error={null} />)
 
       const value = screen.getByTestId('metric-value')
-      expect(value).toHaveTextContent('$12,345.67')
+      expect(value).toHaveTextContent(formatted)
       expect(value.textContent).toMatch(/\$/)
       expect(value.textContent).toMatch(/,/)
       expect(value.textContent).toMatch(/\.\d{2}/)
@@ -74,17 +118,19 @@ describe('Provider Statistics Tests', () => {
   // active leases stats tests
   describe('Active Leases Metric', () => {
     it('should render with correct title', () => {
-      render(<ActiveLeasesMetric />)
+      render(<ActiveLeasesMetric data={liveApiData} />)
 
       expect(screen.getByText('Active Leases')).toBeInTheDocument()
     })
 
     it('should display lease count with comma formatting', () => {
-      render(<MetricCard title="Active Leases" value="1,234" isLoading={false} error={null} />)
+      const formatted = formatNumber(liveApiData.now.activeLeaseCount)
+
+      render(<MetricCard title="Active Leases" value={formatted} isLoading={false} error={null} />)
 
       const value = screen.getByTestId('metric-value')
-      expect(value).toHaveTextContent('1,234')
-      expect(value.textContent).toMatch(/,/)
+      expect(value).toHaveTextContent(formatted)
+      expect(typeof liveApiData.now.activeLeaseCount).toBe('number')
     })
 
     it('should handle single digit lease count', () => {
@@ -121,15 +167,17 @@ describe('Provider Statistics Tests', () => {
   // active providers stats tests
   describe('Active Providers Metric', () => {
     it('should render with correct title', () => {
-      render(<ActiveProvidersMetric />)
+      render(<ActiveProvidersMetric data={liveApiData} />)
 
       expect(screen.getByText('Active Providers')).toBeInTheDocument()
     })
 
     it('should display provider count', () => {
-      render(<MetricCard title="Active Providers" value="56" isLoading={false} error={null} />)
+      const formatted = formatNumber(liveApiData.networkCapacity.activeProviderCount)
 
-      expect(screen.getByTestId('metric-value')).toHaveTextContent('56')
+      render(<MetricCard title="Active Providers" value={formatted} isLoading={false} error={null} />)
+
+      expect(screen.getByTestId('metric-value')).toHaveTextContent(formatted)
     })
 
     it('should handle single active provider', () => {
@@ -163,40 +211,12 @@ describe('Provider Statistics Tests', () => {
     })
   })
 
-
-  describe('Number Formatting Utilities', () => {
-    it('should format currency with commas and 2 decimal places', () => {
-      const formatCurrency = (value: number) => {
-        return new Intl.NumberFormat('en-US', {
-          style: 'currency',
-          currency: 'USD',
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2
-        }).format(value)
-      }
-
-      expect(formatCurrency(12345.67)).toBe('$12,345.67')
-      expect(formatCurrency(1234567.89)).toBe('$1,234,567.89')
-      expect(formatCurrency(0)).toBe('$0.00')
-    })
-
-    it('should format integers with commas', () => {
-      const formatNumber = (value: number) => {
-        return new Intl.NumberFormat('en-US').format(value)
-      }
-
-      expect(formatNumber(1234)).toBe('1,234')
-      expect(formatNumber(10000)).toBe('10,000')
-      expect(formatNumber(5)).toBe('5')
-      expect(formatNumber(0)).toBe('0')
-    })
-  })
-
+  // Edge cases
   describe('Edge Cases and Error Handling', () => {
     it('should handle undefined data gracefully', () => {
       render(<MetricCard title="Test Metric" value={undefined} isLoading={false} error={null} />)
 
-      // Should not crash,  show empty or default state
+      // Should not crash, show empty or default state
       expect(screen.getByText('Test Metric')).toBeInTheDocument()
     })
 
@@ -218,5 +238,4 @@ describe('Provider Statistics Tests', () => {
       expect(screen.getByTestId('error-message')).toBeInTheDocument()
     })
   })
-
 })
